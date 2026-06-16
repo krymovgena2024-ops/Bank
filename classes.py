@@ -1,84 +1,20 @@
 import datetime
 import sqlite3
-import os
+import os, random
 from database.database import get_db_path
 
 class BankAccount:
-    def __init__(self, account_number, owner_name, age, balance, bank_name):
+    def __init__(self, account_number, owner_name, age, bank_name, initial_balance=0.0):
         self.account_number = account_number
         self.owner_name = owner_name
         self.age = age
-        self.balance = balance
         self.bank_name = bank_name
-        self.account_history = [] # личный журнал транзакций
-    
-    def __repr__(self):
-        # строка, которая должна выводится при печати списка счетов конкретного банка
-        return f"(Owner: {self.owner_name}, Account number: {self.account_number}, Balance: {self.balance} UAH)"
-    
-    # def deposit (self, amount):
-    #     self.balance += amount
+        self.account_number = "".join([str(random.randint(0, 9)) for _ in range(17)])
 
-    # def withdraw(self, suma):
-    #     if self.balance >= suma:
-    #         self.balance -= suma
-    #         return True
-    #     return False
-    
-    # def transfer(self, from_acc_num, to_acc_num, amount):
-    #     comision = 0
-    #     #якщо банк той самий — переказ без комісії
-    #     if self.bank_name != from_acc_num.bank_name:
-    #         comision = amount*0.01
-    #     amount += comision
-    #     sender = from_acc_num
-    #     receiver = to_acc_num
-    #     if sender.balance < amount: # проверяем баланс
-    #         return False
-    #     sender.balance -= amount # выполняем перевод
-    #     receiver.balance += amount
-    #     # функция вернет True, если общая сумма не превышает сумму на счете
-    #     return True
-
-class Transaction:
-    def __init__(self, from_account_number, to_account_number, amount, comission, timestamp):
-        self.from_acc = from_account_number
-        self.to_acc = to_account_number
-        self.amount = amount
-        self.comission = comission
-        self.timestamp = timestamp
-
-    def __repr__(self):
-        # делаем читабельное представление для журнала истории транзакций
-        return f"Transaction(From: {self.from_acc} -> To: {self.to_acc}, Amount: {self.amount} UAH, Comission: {self.comission} UAH, Time: {self.timestamp.strftime('%Y-%m-%d %H:%M:%S')})"
-    
 
 class Bank:
-    bank_register = {} # Центральный регистр. Ключ = название банка, значение = список счетов
-    #_next_account_number = 100 # используем атрибут класса для генерации уникальных номеров счетов
     def __init__(self, bank_name):
         self.bank_name = bank_name.title()
-        #self.list_accounts = []
-        #self.transaction_log = []
-        # Автоматическая регистрация нового экземпляра банка. Когда создается monobank = Bank("monobank"), объект monobank автоматически попадает в Bank.bank_register
-        #Bank.bank_register[bank_name] = self
-    
-    def __repr__(self):
-        # возвращаем название банка и список счетов
-        num_accounts = self.list_accounts
-        return f"Bank({self.bank_name}, Accounts: {num_accounts})"
-
-    def log_transaction(self, from_acc_num, to_acc_num, amount, comission):
-        # создаем новый объект Transaction
-        new_transaction = Transaction(
-            from_account_number = from_acc_num,
-            to_account_number = to_acc_num,
-            amount = amount,
-            comission = comission,
-            timestamp = datetime.datetime.now()) # фиксируем текущее время
-        # добавляем его в журнал
-        self.transaction_log.append(new_transaction)
-        return new_transaction
 
 
     def transfer(self, from_acc_num, to_acc_num, amount):
@@ -133,16 +69,17 @@ class Bank:
             return False
     
     
-    def create_account(self, owner, age, initial_balance):
-        # cоздаем экземпляр BankAccount, передавая все 4 аргумента
-        new_account = BankAccount( 
-            account_number=None, # теперь объект знает свой ID из базы
-            owner_name=owner, 
+    def create_account(self, owner_name, age, balance):
+        # Просто создаем объект в памяти и возвращаем его в GUI
+        return BankAccount(
+            account_number=None,  # ID пока нет, его присвоит GUI после сохранения
+            owner_name=owner_name,
             age=age,
-            balance=initial_balance, 
-            bank_name=self.bank_name)
-        return new_account
+            bank_name=self.bank_name,
+            initial_balance=balance  # Передаем введенный баланс сюда
+        )
     
+
     def find_account(self, account_number):
         db_path = get_db_path()
         with sqlite3.connect(db_path) as conn:
@@ -156,38 +93,61 @@ class Bank:
             account_number=row[0],
             owner_name=row[1],
             age=row[2],
-            balance=row[3],
-            bank_name=row[4])
+            bank_name=row[3])
             return found_account
         return None
+
+
+    def create_new_score_on_exists_account_with_new_currrency(self, owner_name, new_currency):
+        db_path = get_db_path()
+        search_name = owner_name.strip().title()
         
-    
-    def total_assets(self):
-        # используем встроенную функцию sum() с генераторным выражением:
-        # проходимся по каждому 'account' в self.list_accounts
-        # для каждого счета берем его account.balance
-        # функция sum() добавляет эти значения
-        total_assets = sum(account.balance for account in self.list_accounts)
-        return total_assets
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                # 1. Находим числовой id пользователя по ФИО И НАЗВАНИЮ БАНКА (self.bank_name)
+                cursor.execute("""
+                    SELECT id FROM list_of_accounts 
+                    WHERE owner_name = ? AND bank_name = ?
+                """, (search_name, self.bank_name))
+                row = cursor.fetchone()
+                
+                if not row:
+                    print(f"Ошибка: Пользователь '{search_name}' не найден в банке {self.bank_name}!")
+                    return False
+                
+                account_id = row[0] # Теперь мы гарантированно получили ID нужного банка (например, 2 для Monobank)
+                
+                # 2. Проверяем, нет ли у этого конкретного ID счета в этой валюте
+                cursor.execute("""
+                    SELECT id FROM users_balances 
+                    WHERE account_id = ? AND currency = ?
+                """, (account_id, new_currency.upper()))
+                
+                if cursor.fetchone():
+                    print(f"У аккаунта {search_name} в банке {self.bank_name} уже есть счет в валюте {new_currency.upper()}!")
+                    return False
+                
+                # 3. Создаем новый валютный кошелек со стартовым балансом 0.0
+                cursor.execute("""
+                    INSERT INTO users_balances (account_id, currency, balance)
+                    VALUES (?, ?, ?)
+                """, (account_id, new_currency.upper(), 0.0))
+                
+                conn.commit()
+                print(f"Успешно открыт счет в валюте {new_currency.upper()} для {search_name} в {self.bank_name}.")
+                return True
+                
+        except Exception as e:
+            print(f"Ошибка при создании валютного счета: {e}")
+            return False
+
 
 # функция создания начальных банков и счетов, чтобы счета, созданные здесь, были доступны в файле GUI_create_account
 def setup_test_data():
     privat_bank = Bank("Privat Bank")
     monobank = Bank("Monobank")
-    return [privat_bank, monobank]
-    
-    # этот блок сработает, только если запустить файл напрямую
-if __name__ == "__main__":
-    banks = setup_test_data()
-#monobank.transfer(andrey_account.account_number, pavel_account.account_number, 500)
-#monobank.transfer(viktor_account.account_number, anna_account.account_number, 400)
-#privat_bank.transfer(oleg_account.account_number, viktor_account.account_number, 400)
-#privat_bank.transfer(anna_account.account_number, pavel_account.account_number, 700)
-#print(monobank.total_assets())
-#print(privat_bank.total_assets())
-#print(andrey_account.balance)
-#print(monobank.transaction_log)
-#print(privat_bank.transaction_log)
-#print(monobank.list_accounts)
-
-
+    abank = Bank("А-Bank")
+    sense_bank = Bank("Sense Bank")
+    return [privat_bank, monobank, abank, sense_bank]
