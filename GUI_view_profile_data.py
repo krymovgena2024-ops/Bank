@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel, 
-                             QLineEdit, QPushButton, QMessageBox)
+                             QLineEdit, QPushButton, QMessageBox, QComboBox)
 from database.database import get_db_path, init_db
 from classes import setup_test_data
 import sys
@@ -14,59 +14,60 @@ class ViewAccountDetails(QWidget):
     def __init__(self, banks_list):
         super().__init__() 
         self.banks = banks_list
-        self.current_sender_id = None # здесь хранится ID отправителя
-        self.current_bank_name = None # здесь хранится название банка владельца счета
+        self.current_sender_id = None 
+        self.current_bank_name = None 
         self.setWindowTitle("Узнать данные аккаунта")
-        self.resize(320, 420) # Немного увеличили высоту под раздельные поля ФИО
+        self.resize(340, 500) # Немного увеличим высоту окна под новые элементы
         
-        # Раздельные поля ввода ФИО вместо одного owner_name
-        self.surname = QLineEdit()
-        self.surname.setPlaceholderText("Фамилия")
-        self.name = QLineEdit()
-        self.name.setPlaceholderText("Имя")
-        self.patronymic = QLineEdit()
-        self.patronymic.setPlaceholderText("Отчество")
+        self.account_number = QLineEdit()
+        self.account_number.setPlaceholderText("Номер счёта человека которого надо найти.")
         
         self.btn_search = QPushButton("Посмотреть данные аккаунта")
         
-        # элементы результата (скрыты изначально)
         self.account_info = QLabel(f"Данные аккаунта:")
         self.balance_label = QLabel(f"")
         
-        # поля для совершения перевода
-        self.transfer_line = QLabel("Перевести деньги со счета:")
+        self.transfer_line = QLabel("Перевести деньги на счёт:")
         self.to_account_input = QLineEdit()
         self.to_account_input.setPlaceholderText("ID счета получателя")
         self.amount_line = QLineEdit()
         self.amount_line.setPlaceholderText("Сумма перевода")
-        self.btn_transfer = QPushButton("Подтвердить перевод")
         
-        # Кнопка НАЗАД теперь всегда видима изначально!
+        # === НОВЫЕ ЭЛЕМЕНТЫ ДЛЯ ВЫБОРА ВАЛЮТЫ ===
+        available_currencies = ["UAH", "USD", "EUR", "TRY", "MDL"]
+        
+        self.currency_from_label = QLabel("Какую валюту списать у вас:")
+        self.currency_from_select = QComboBox()
+        self.currency_from_select.addItems(available_currencies)
+        
+        self.currency_to_label = QLabel("В какой валюте зачислить получателю:")
+        self.currency_to_select = QComboBox()
+        self.currency_to_select.addItems(available_currencies)
+        # =======================================
+
+        self.btn_transfer = QPushButton("Подтвердить перевод")
         self.btn_back = QPushButton("Назад в главное меню")
         
-        # Исходный список скрываемых элементов второго экрана
+        # Расширяем список элементов второго экрана
         self.second_screen_elements = [
             self.account_info, self.balance_label, self.transfer_line,
-            self.to_account_input, self.amount_line, self.btn_transfer
+            self.to_account_input, self.amount_line, 
+            self.currency_from_label, self.currency_from_select, # Новые поля
+            self.currency_to_label, self.currency_to_select,     # Новые поля
+            self.btn_transfer
         ]
         
-        # Скрываем только элементы второго экрана
         for el in self.second_screen_elements:
             el.hide()
             
         layout = QVBoxLayout() 
 
-        # 1. Добавляем раздельные элементы поиска (первый экран)
-        layout.addWidget(self.name)
-        layout.addWidget(self.surname)
-        layout.addWidget(self.patronymic)
+        layout.addWidget(self.account_number)
         layout.addWidget(self.btn_search)
 
-        # 2. Добавляем скрытые элементы второго экрана (результаты и перевод)
         for el in self.second_screen_elements:
             layout.addWidget(el)
             
-        # 3. Добавляем кнопку "Назад" в самый низ, чтобы она была видна всегда
         layout.addWidget(self.btn_back) 
 
         self.setLayout(layout)
@@ -77,37 +78,34 @@ class ViewAccountDetails(QWidget):
 
     
     def check_database(self): 
-        # Считываем данные и чистим пробелы
-        s_name = self.name.text().strip()
-        s_surname = self.surname.text().strip()
-        s_patronymic = self.patronymic.text().strip()
-
-        # Проверяем, заполнил ли пользователь все 3 поля
-        if not all([s_surname, s_name, s_patronymic]):
-            QMessageBox.warning(self, "Ошибка", "Пожалуйста, заполните полностью Фамилию, Имя и Отчество!")
-            return
-
-        # Проверяем на наличие цифр в полях ввода
-        if any(char.isdigit() for char in s_surname + s_name + s_patronymic):
-            QMessageBox.warning(self, "Ошибка", "В Фамилии, Имени или Отчестве не должно быть цифр!")
-            return
-
-        # Формируем красивую искомую строку
-        search_name = f"{s_surname.title()} {s_name.title()} {s_patronymic.title()}"
+        # 1. Получаем чистый текст из поля ввода QLineEdit
+        account_num_text = self.account_number.text().strip()
         
+        # Проверяем на наличие букв в строке
+        if any(char.isalpha() for char in account_num_text):
+            QMessageBox.warning(self, "Ошибка", "В номере счёта не должно быть букв!")
+            return
+            
+        # Проверим на пустоту на всякий случай
+        if not account_num_text:
+            QMessageBox.warning(self, "Ошибка", "Введите номер счета!")
+            return
+        
+        row = None
         with sqlite3.connect(get_db_path()) as conn:
             cursor = conn.cursor()
             
-            # Получаем основные данные пользователя
-            cursor.execute("SELECT * FROM list_of_accounts WHERE owner_name = ?", (search_name,))
+            # 2. ИСПРАВЛЕНО: Ищем строго по колонке account_number, а не по owner_name
+            cursor.execute("SELECT * FROM list_of_accounts WHERE account_number = ?", (account_num_text,))
             row = cursor.fetchone()
 
         if row:
-            # row[0] = id, row[1] = owner_name, row[2] = age, row[3] = bank_name
-            self.current_sender_id = row[0]  
+            # row[0] = id, row[1] = owner_name, row[2] = age, row[3] = bank_name, row[4] = account_number
+            self.current_sender_id = row[0]  # ОСТАВЛЯЕМ ID (число 1, 2, 3...) для связи с балансами!
             self.current_bank_name = row[3] 
+            self.current_sender_account_number = row[4] # А сюда сохраняем длинный номер счета
             
-            # Запрашиваем балансы пользователя из актуальной таблицы users_balances
+            # Теперь запрос балансов сработает идеально, так как мы передаем row[0]
             with sqlite3.connect(get_db_path()) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -120,22 +118,20 @@ class ViewAccountDetails(QWidget):
             balances_text = ""
             if balances_rows:
                 for bal in balances_rows:
-                    balances_text += f"   • {bal[1]} {bal[0]}\n"
+                    balances_text += f"• {bal[1]:.2f} {bal[0]}\n"
             else:
                 balances_text = "   • Нет открытых счетов\n"
 
-            # Скрываем все три поля ввода поиска и кнопку поиска
-            self.surname.hide()
-            self.name.hide()
-            self.patronymic.hide()
+            # Скрываем кнопку поиска
             self.btn_search.hide()
             
             # Выводим полную информацию
             self.balance_label.setText(
                 f"Владелец: {row[1]}\n"
                 f"Возраст: {row[2]}\n"
-                f"ID счета: {row[0]}\n"
+                f"ID в системе: {row[0]}\n"
                 f"Банк: {row[3]}\n"
+                f"Номер счета: {row[4]}\n"  # Добавили вывод 16-значного номера для наглядности
                 f"Доступные счета:\n{balances_text}"
             )
             
@@ -143,24 +139,29 @@ class ViewAccountDetails(QWidget):
             for el in self.second_screen_elements:
                 el.show()
         else:
-            QMessageBox.warning(self, "Ошибка!", "Аккаунт не найден")
+            QMessageBox.warning(self, "Ошибка!", "Аккаунт с таким номером не найден")
 
 
     def process_transfer(self):
         to_acc = self.to_account_input.text().strip()
         amount_str = self.amount_line.text().strip()
+        
+        # Получаем выбранные пользователем валюты из выпадающих списков
+        what_to_convert = self.currency_from_select.currentText()
+        what_to_convert_into = self.currency_to_select.currentText()
+        
         try:
             amount = float(amount_str)
             to_acc_id = int(to_acc)
         except ValueError:
-            QMessageBox.warning(self, "Ошибка", "Введите корректные числа")
+            QMessageBox.warning(self, "Ошибка", "Введите корректные числа и убедитесь что все поля заполнены.")
             return
             
         if not to_acc or not amount_str:
             QMessageBox.warning(self, "Ошибка", "Заполните данные для перевода")
             return
 
-        if int(self.current_sender_id) == to_acc_id:
+        if int(self.current_sender_account_number) == to_acc_id:
             QMessageBox.warning(self, "Ошибка", "Нельзя отправить деньги самому себе.")
             return
             
@@ -171,40 +172,44 @@ class ViewAccountDetails(QWidget):
                 break
             
         if active_bank:
-            success = active_bank.transfer(self.current_sender_id, to_acc_id, amount, currency="UAH")
+            # ИСПРАВЛЕНО: передаем длинный номер счета отправителя вместо внутреннего ID
+            success = active_bank.transfer(
+                from_acc_num=self.current_sender_account_number, # Передаем 17-значный номер!
+                to_acc_num=to_acc_id, 
+                amount=amount, 
+                what_to_convert=what_to_convert, 
+                what_to_convert_into=what_to_convert_into
+            )
             
             if success:
-                QMessageBox.information(self, "Успех", "Перевод выполнен")
-                self.check_database() # Обновляем экран с балансами
+                QMessageBox.information(self, "Успех", f"Перевод выполнен. Конвертация: {what_to_convert} -> {what_to_convert_into}\n Комисия {success} {what_to_convert}")
+                self.check_database() 
                 self.to_account_input.clear()
                 self.amount_line.clear()
             else:
-                QMessageBox.warning(self, "Ошибка", "Перевод не удался. Проверьте баланс UAH или ID получателя.")
+                QMessageBox.warning(self, "Ошибка", "Перевод не удался. Проверьте балансы кошельков или ID получателя.")
         else:
             QMessageBox.warning(self, "Ошибка", "Банк отправителя не найден в системе.")
     
     
-    def show_search_fields(self): 
-        # Если поля ввода видны, значит пользователь на первом экране и хочет выйти в меню
-        if self.name.isVisible():
+    def show_search_fields(self):
+        # 1. ИСПРАВЛЕНО: Проверяем видимость актуального поля ввода номера счета
+        if self.account_number.isVisible():
+            # Если оно и так видно, значит пользователь на первом экране и хочет выйти в меню
             self.back_to_menu_requested.emit()
             self.close()
             return
 
-        # Если поля поиска были скрыты, возвращаем состояние к начальному поиску
+        # Если поля поиска были скрыты (показывался экран перевода), возвращаем начальное состояние
         for el in self.second_screen_elements:
             el.hide()
-            
-        # Показываем все три поля ФИО и кнопку заново
-        self.surname.show()
-        self.name.show()
-        self.patronymic.show()
+
+        # 2. ИСПРАВЛЕНО: Показываем обратно поле ввода номера счета и кнопку поиска
+        self.account_number.show()
         self.btn_search.show()
-        
-        # Очищаем старый ввод
-        self.surname.clear()
-        self.name.clear()
-        self.patronymic.clear()
+
+        # 3. ИСПРАВЛЕНО: Очищаем старый ввод в поле номера счета
+        self.account_number.clear()
 
 
 if __name__ == "__main__":

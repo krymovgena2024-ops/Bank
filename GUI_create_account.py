@@ -1,4 +1,4 @@
-from classes import Bank, BankAccount, setup_test_data
+from classes import setup_test_data
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel, 
                               QLineEdit, QPushButton, QComboBox, QMessageBox)
 from PyQt5.QtCore import pyqtSignal  # ИМПОРТИРУЕМ СИГНАЛЫ
@@ -113,7 +113,7 @@ class CreateAccountWindow(QWidget):
             QMessageBox.warning(self, "Ошибка", "Выбранный банк не найден в системе!")
             return 
             
-        db_id = save_account_to_db(account)
+        save_account_to_db(account)
         # db_id по-прежнему нужен системе для связей таблиц, 
         # но пользователю мы теперь показываем настоящий 16-значный номер!
         QMessageBox.information(
@@ -143,4 +143,3 @@ if __name__ == "__main__":
     window = CreateAccountWindow(banks_list) 
     window.show() 
     sys.exit(app.exec_())
-

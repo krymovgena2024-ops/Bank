@@ -1,11 +1,7 @@
-from classes import Bank, BankAccount, setup_test_data
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel, 
-                             QTextEdit, QLineEdit, QPushButton, 
-                             QListWidget, QComboBox, QMessageBox)
-from  database.database import init_db, save_account_to_db, get_db_path
 import sys
-from GUI_create_account import CreateAccountWindow
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton
 from classes import setup_test_data
+from GUI_create_account import CreateAccountWindow
 from GUI_view_profile_data import ViewAccountDetails
 from GUI_create_currency_account import CreateCurrencyAccountWindow
 
